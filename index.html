@@ -174,7 +174,14 @@ function todayMid(){ const t=new Date(); return new Date(t.getFullYear(),t.getMo
 function parseDate(s){ const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); }
 function fmt(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function fmtJp(d){ return (d.getMonth()+1)+'月'+d.getDate()+'日'; }
+function fmtMd(d){ return (d.getMonth()+1)+'/'+d.getDate(); }
 function daysBetween(a,b){ return Math.round((a-b)/86400000); }
+// 締切＝次の発生日の前日（＝現在の発生日＋周期−1日）
+function deadlineDate(nextDueStr, interval){
+  const d = addInterval(parseDate(nextDueStr), interval);
+  d.setDate(d.getDate()-1);
+  return d;
+}
 
 function addMonths(date, n){
   const day = date.getDate();
@@ -271,7 +278,7 @@ function renderTodo(){
       <div class="top">
         <div>
           <div class="name">${esc(r.name)}</div>
-          <div class="meta">${ivLabel(r.interval)} ・ 予定 ${fmtJp(parseDate(r.nextDue))}</div>
+          <div class="meta">${ivLabel(r.interval)} ・ 発生 ${fmtMd(parseDate(r.nextDue))} ・ 締切 ${fmtMd(deadlineDate(r.nextDue, r.interval))}</div>
         </div>
         ${badge}
       </div>
@@ -289,12 +296,12 @@ function renderAll(){
   }
   const sorted = [...routines].sort((a,b)=> parseDate(a.nextDue) - parseDate(b.nextDue));
   return sorted.map(r=>{
-    const last = r.lastDone ? '前回 '+fmtJp(parseDate(r.lastDone)) : '前回 なし';
+    const last = r.lastDone ? '前回 '+fmtMd(parseDate(r.lastDone)) : '前回 なし';
     return `
     <div class="listrow">
       <div>
         <div class="name">${esc(r.name)}</div>
-        <div class="meta">${ivLabel(r.interval)} ・ 次回 ${fmtJp(parseDate(r.nextDue))} ・ ${last}</div>
+        <div class="meta">${ivLabel(r.interval)} ・ 発生 ${fmtMd(parseDate(r.nextDue))} ・ 締切 ${fmtMd(deadlineDate(r.nextDue, r.interval))} ・ ${last}</div>
       </div>
       <button class="edit" data-edit="${r.id}">編集</button>
     </div>`;
