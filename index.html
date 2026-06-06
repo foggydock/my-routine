@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#2f6f6f">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ルーティン">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>ルーティン</title>
+<style>
+  :root{
+    --bg:#f4f6f6;
+    --card:#ffffff;
+    --ink:#1f2a2a;
+    --sub:#6b7a7a;
+    --accent:#2f6f6f;
+    --accent-d:#245757;
+    --late:#d6453d;
+    --late-bg:#fdeceb;
+    --line:#e4e9e9;
+    --shadow:0 1px 3px rgba(0,0,0,.07);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",sans-serif;
+    background:var(--bg);color:var(--ink);
+    font-size:16px;line-height:1.5;
+    padding-bottom:90px;
+  }
+  header{
+    position:sticky;top:0;z-index:10;
+    background:var(--accent);color:#fff;
+    padding:14px 16px;
+    box-shadow:0 1px 4px rgba(0,0,0,.12);
+  }
+  header h1{margin:0;font-size:18px;font-weight:700;letter-spacing:.02em;}
+  header .date{font-size:12px;opacity:.85;margin-top:2px;}
+  .tabs{
+    display:flex;background:var(--card);border-bottom:1px solid var(--line);
+    position:sticky;top:0;z-index:5;
+  }
+  .tab{
+    flex:1;text-align:center;padding:12px 0;font-size:14px;font-weight:600;
+    color:var(--sub);border-bottom:2px solid transparent;cursor:pointer;
+  }
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+  main{padding:14px 12px;max-width:560px;margin:0 auto;}
+  .empty{
+    text-align:center;color:var(--sub);font-size:14px;
+    padding:48px 20px;line-height:1.8;
+  }
+  .empty .big{font-size:40px;margin-bottom:8px;}
+  /* cards */
+  .card{
+    background:var(--card);border-radius:14px;box-shadow:var(--shadow);
+    padding:14px;margin-bottom:10px;border:1px solid var(--line);
+  }
+  .card.late{border-color:#f3c9c6;}
+  .card .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+  .card .name{font-size:16px;font-weight:700;word-break:break-word;}
+  .card .meta{font-size:12px;color:var(--sub);margin-top:3px;}
+  .badge{
+    flex:none;font-size:12px;font-weight:700;border-radius:999px;
+    padding:4px 10px;white-space:nowrap;
+  }
+  .badge.today{background:#e8f3f0;color:var(--accent-d);}
+  .badge.late{background:var(--late-bg);color:var(--late);}
+  .card .actions{display:flex;gap:8px;margin-top:12px;align-items:center;}
+  .card .actions input[type=date]{
+    flex:1;min-width:0;font-size:14px;padding:8px;border:1px solid var(--line);
+    border-radius:9px;background:#fafbfb;color:var(--ink);font-family:inherit;
+  }
+  .btn{
+    border:none;border-radius:9px;font-family:inherit;font-weight:700;
+    font-size:14px;padding:9px 14px;cursor:pointer;
+  }
+  .btn.done{background:var(--accent);color:#fff;flex:none;}
+  .btn.done:active{background:var(--accent-d);}
+  /* list (manage) */
+  .listrow{
+    background:var(--card);border-radius:12px;box-shadow:var(--shadow);
+    border:1px solid var(--line);padding:12px 14px;margin-bottom:8px;
+    display:flex;justify-content:space-between;align-items:center;gap:10px;
+  }
+  .listrow .name{font-weight:700;font-size:15px;}
+  .listrow .meta{font-size:12px;color:var(--sub);margin-top:2px;}
+  .listrow .edit{
+    flex:none;font-size:13px;color:var(--accent);font-weight:700;
+    background:#eef4f3;border:none;border-radius:8px;padding:7px 12px;cursor:pointer;
+  }
+  /* FAB */
+  .fab{
+    position:fixed;right:18px;bottom:22px;z-index:20;
+    width:58px;height:58px;border-radius:50%;border:none;
+    background:var(--accent);color:#fff;font-size:30px;line-height:58px;
+    box-shadow:0 4px 12px rgba(47,111,111,.45);cursor:pointer;
+  }
+  .fab:active{background:var(--accent-d);}
+  /* modal */
+  .overlay{
+    position:fixed;inset:0;background:rgba(20,30,30,.45);z-index:30;
+    display:none;align-items:center;justify-content:center;
+    padding:16px;
+  }
+  .overlay.open{display:flex;}
+  .sheet{
+    background:var(--card);width:100%;max-width:520px;
+    border-radius:18px;
+    max-height:90vh;max-height:calc(100dvh - 32px);overflow-y:auto;
+    padding:18px 16px 20px;
+    box-shadow:0 6px 28px rgba(0,0,0,.28);
+    animation:pop .18s ease;
+  }
+  @keyframes pop{from{transform:scale(.97);opacity:.5;}to{transform:none;opacity:1;}}
+  .sheet h2{margin:0 0 14px;font-size:17px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-size:13px;color:var(--sub);font-weight:600;margin-bottom:5px;}
+  .field input,.field select{
+    width:100%;font-size:16px;padding:11px;border:1px solid var(--line);
+    border-radius:10px;background:#fafbfb;font-family:inherit;color:var(--ink);
+  }
+  .field .hint{font-size:11.5px;color:var(--sub);margin-top:5px;line-height:1.5;}
+  .field input.invalid{border-color:var(--late);background:var(--late-bg);}
+  .err{color:var(--late);font-size:13px;font-weight:600;margin:-4px 0 12px;min-height:18px;}
+  .sheet .row{display:flex;gap:10px;margin-top:6px;}
+  .btn.primary{background:var(--accent);color:#fff;flex:1;padding:13px;}
+  .btn.ghost{background:#eef1f1;color:var(--ink);flex:none;padding:13px 16px;}
+  .btn.danger{background:var(--late-bg);color:var(--late);width:100%;padding:11px;margin-top:4px;}
+</style>
+</head>
+<body>
+<header>
+  <h1>ルーティン</h1>
+  <div class="date" id="todayLabel"></div>
+</header>
+<div class="tabs">
+  <div class="tab active" data-tab="todo" id="tabTodo">今やること</div>
+  <div class="tab" data-tab="all" id="tabAll">一覧</div>
+</div>
+<main id="view"></main>
+
+<button class="fab" id="addBtn">＋</button>
+
+<div class="overlay" id="overlay">
+  <div class="sheet" id="sheet"></div>
+</div>
+
+<script>
+"use strict";
+
+/* ---------- 周期の定義 ---------- */
+const INTERVALS = [
+  {key:'1w',  label:'毎週',       unit:'day',   n:7},
+  {key:'2w',  label:'隔週',       unit:'day',   n:14},
+  {key:'3w',  label:'3週間ごと',  unit:'day',   n:21},
+  {key:'1mo', label:'毎月',       unit:'month', n:1},
+  {key:'2mo', label:'2ヶ月ごと',  unit:'month', n:2},
+  {key:'3mo', label:'3ヶ月ごと',  unit:'month', n:3},
+  {key:'4mo', label:'4ヶ月ごと',  unit:'month', n:4},
+  {key:'6mo', label:'半年ごと',   unit:'month', n:6},
+  {key:'1y',  label:'毎年',       unit:'year',  n:1},
+  {key:'2y',  label:'2年ごと',    unit:'year',  n:2},
+  {key:'3y',  label:'3年ごと',    unit:'year',  n:3},
+  {key:'5y',  label:'5年ごと',    unit:'year',  n:5},
+];
+const ivLabel = k => (INTERVALS.find(x=>x.key===k)||{}).label || '';
+
+/* ---------- 日付ユーティリティ ---------- */
+function todayMid(){ const t=new Date(); return new Date(t.getFullYear(),t.getMonth(),t.getDate()); }
+function parseDate(s){ const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); }
+function fmt(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function fmtJp(d){ return (d.getMonth()+1)+'月'+d.getDate()+'日'; }
+function daysBetween(a,b){ return Math.round((a-b)/86400000); }
+
+function addMonths(date, n){
+  const day = date.getDate();
+  date.setDate(1);
+  date.setMonth(date.getMonth()+n);
+  const last = new Date(date.getFullYear(), date.getMonth()+1, 0).getDate();
+  date.setDate(Math.min(day, last));
+}
+function addInterval(d, key){
+  const iv = INTERVALS.find(x=>x.key===key);
+  const r = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  if(iv.unit==='day')        r.setDate(r.getDate()+iv.n);
+  else if(iv.unit==='month') addMonths(r, iv.n);
+  else                       addMonths(r, iv.n*12);
+  return r;
+}
+
+/* ---------- データ ---------- */
+const KEY='routine-app-v1';
+let routines = load();
+let tab='todo';
+
+function load(){
+  try{ return JSON.parse(localStorage.getItem(KEY))||[]; }
+  catch(e){ return []; }
+}
+function save(){ localStorage.setItem(KEY, JSON.stringify(routines)); }
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+
+/* ---------- 完了処理（大遅刻は未来の直近予定日まで飛ばす） ---------- */
+function complete(id, doneStr){
+  const r = routines.find(x=>x.id===id); if(!r) return;
+  const done = parseDate(doneStr);
+  let next = parseDate(r.nextDue);
+  if(done < next){
+    next = addInterval(done, r.interval);     // 早めにやった場合
+  }else{
+    while(next <= done){ next = addInterval(next, r.interval); } // 予定日基準で進める
+  }
+  r.lastDone = doneStr;
+  r.nextDue  = fmt(next);
+  save(); render();
+}
+
+/* ---------- 追加・編集・削除 ---------- */
+function addRoutine(name, interval, lastDoneStr){
+  let nextDue;
+  if(lastDoneStr){ nextDue = fmt(addInterval(parseDate(lastDoneStr), interval)); }
+  else           { nextDue = fmt(todayMid()); }  // 未実施なら今すぐ「今やること」に出す
+  routines.push({ id:uid(), name, interval, nextDue, lastDone:lastDoneStr||null });
+  save(); render();
+}
+function updateRoutine(id, name, interval, nextDueStr){
+  const r = routines.find(x=>x.id===id); if(!r) return;
+  r.name=name; r.interval=interval; r.nextDue=nextDueStr;
+  save(); render();
+}
+function deleteRoutine(id){
+  routines = routines.filter(x=>x.id!==id);
+  save(); render();
+}
+
+/* ---------- 描画 ---------- */
+function render(){
+  document.getElementById('todayLabel').textContent = '今日は ' + fmtJp(todayMid());
+  document.getElementById('tabTodo').classList.toggle('active', tab==='todo');
+  document.getElementById('tabAll').classList.toggle('active', tab==='all');
+  const view = document.getElementById('view');
+  view.innerHTML = tab==='todo' ? renderTodo() : renderAll();
+  bind();
+}
+
+function renderTodo(){
+  const today = todayMid();
+  const due = routines
+    .filter(r => parseDate(r.nextDue) <= today)
+    .sort((a,b)=> parseDate(a.nextDue) - parseDate(b.nextDue));
+
+  if(routines.length===0){
+    return `<div class="empty"><div class="big">🗒️</div>まだルーティンがありません。<br>右下の ＋ から登録しましょう。</div>`;
+  }
+  if(due.length===0){
+    return `<div class="empty"><div class="big">✅</div>今やることはありません。<br>すべて予定どおりです。</div>`;
+  }
+
+  const tStr = fmt(today);
+  return due.map(r=>{
+    const late = daysBetween(today, parseDate(r.nextDue));
+    const badge = late>0
+      ? `<span class="badge late">${late}日遅れ</span>`
+      : `<span class="badge today">今日</span>`;
+    return `
+    <div class="card ${late>0?'late':''}">
+      <div class="top">
+        <div>
+          <div class="name">${esc(r.name)}</div>
+          <div class="meta">${ivLabel(r.interval)} ・ 予定 ${fmtJp(parseDate(r.nextDue))}</div>
+        </div>
+        ${badge}
+      </div>
+      <div class="actions">
+        <input type="date" value="${tStr}" data-date="${r.id}">
+        <button class="btn done" data-done="${r.id}">完了</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderAll(){
+  if(routines.length===0){
+    return `<div class="empty"><div class="big">🗒️</div>まだルーティンがありません。<br>右下の ＋ から登録しましょう。</div>`;
+  }
+  const sorted = [...routines].sort((a,b)=> parseDate(a.nextDue) - parseDate(b.nextDue));
+  return sorted.map(r=>{
+    const last = r.lastDone ? '前回 '+fmtJp(parseDate(r.lastDone)) : '前回 なし';
+    return `
+    <div class="listrow">
+      <div>
+        <div class="name">${esc(r.name)}</div>
+        <div class="meta">${ivLabel(r.interval)} ・ 次回 ${fmtJp(parseDate(r.nextDue))} ・ ${last}</div>
+      </div>
+      <button class="edit" data-edit="${r.id}">編集</button>
+    </div>`;
+  }).join('');
+}
+
+function esc(s){ return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* ---------- イベント ---------- */
+function bind(){
+  document.querySelectorAll('[data-done]').forEach(b=>{
+    b.onclick = ()=>{
+      const id=b.dataset.done;
+      const di=document.querySelector(`[data-date="${id}"]`);
+      complete(id, di.value || fmt(todayMid()));
+    };
+  });
+  document.querySelectorAll('[data-edit]').forEach(b=>{
+    b.onclick = ()=> openEdit(b.dataset.edit);
+  });
+}
+document.getElementById('tabTodo').onclick = ()=>{ tab='todo'; render(); };
+document.getElementById('tabAll').onclick  = ()=>{ tab='all';  render(); };
+document.getElementById('addBtn').onclick  = openAdd;
+
+/* ---------- モーダル ---------- */
+const overlay=document.getElementById('overlay');
+const sheet=document.getElementById('sheet');
+function closeSheet(){ overlay.classList.remove('open'); sheet.innerHTML=''; }
+overlay.onclick = e=>{ if(e.target===overlay) closeSheet(); };
+
+function intervalOptions(sel){
+  return INTERVALS.map(iv=>`<option value="${iv.key}" ${iv.key===sel?'selected':''}>${iv.label}</option>`).join('');
+}
+
+function openAdd(){
+  sheet.innerHTML = `
+    <h2>ルーティンを追加</h2>
+    <div class="field">
+      <label>やること</label>
+      <input id="f-name" placeholder="例：換気扇の掃除" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>周期</label>
+      <select id="f-iv">${intervalOptions('1mo')}</select>
+    </div>
+    <div class="field">
+      <label>最後にやった日（任意）</label>
+      <input type="date" id="f-last">
+      <div class="hint">入れると「やった日＋周期」が次回予定になります。<br>空欄なら今すぐ「今やること」に出ます。</div>
+    </div>
+    <div class="err" id="f-err"></div>
+    <div class="row">
+      <button type="button" class="btn ghost" id="f-cancel">やめる</button>
+      <button type="button" class="btn primary" id="f-save">追加する</button>
+    </div>`;
+  overlay.classList.add('open');
+  const nameEl=document.getElementById('f-name');
+  const errEl=document.getElementById('f-err');
+  function submit(){
+    const name=nameEl.value.trim();
+    if(!name){
+      errEl.textContent='「やること」を入力してください';
+      nameEl.classList.add('invalid'); nameEl.focus();
+      return;
+    }
+    addRoutine(name, document.getElementById('f-iv').value, document.getElementById('f-last').value);
+    closeSheet();
+  }
+  nameEl.oninput=()=>{ errEl.textContent=''; nameEl.classList.remove('invalid'); };
+  nameEl.onkeydown=(e)=>{ if(e.key==='Enter') submit(); };
+  document.getElementById('f-cancel').onclick = closeSheet;
+  document.getElementById('f-save').onclick = submit;
+  nameEl.focus();
+}
+
+function openEdit(id){
+  const r=routines.find(x=>x.id===id); if(!r) return;
+  sheet.innerHTML = `
+    <h2>ルーティンを編集</h2>
+    <div class="field">
+      <label>やること</label>
+      <input id="f-name" value="${esc(r.name)}" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>周期</label>
+      <select id="f-iv">${intervalOptions(r.interval)}</select>
+    </div>
+    <div class="field">
+      <label>次回の予定日</label>
+      <input type="date" id="f-next" value="${r.nextDue}">
+      <div class="hint">周期が実体に合わないときは、ここで直接ずらせます。</div>
+    </div>
+    <div class="row">
+      <button class="btn ghost" id="f-cancel">やめる</button>
+      <button class="btn primary" id="f-save">保存する</button>
+    </div>
+    <button class="btn danger" id="f-del">このルーティンを削除</button>`;
+  overlay.classList.add('open');
+  document.getElementById('f-cancel').onclick = closeSheet;
+  document.getElementById('f-save').onclick = ()=>{
+    const name=document.getElementById('f-name').value.trim();
+    if(!name){ document.getElementById('f-name').focus(); return; }
+    updateRoutine(id, name, document.getElementById('f-iv').value, document.getElementById('f-next').value);
+    closeSheet();
+  };
+  document.getElementById('f-del').onclick = ()=>{
+    if(confirm('「'+r.name+'」を削除しますか？')){ deleteRoutine(id); closeSheet(); }
+  };
+}
+
+render();
+</script>
+</body>
+</html>
