@@ -227,11 +227,9 @@ function complete(id, doneStr){
 }
 
 /* ---------- 追加・編集・削除 ---------- */
-function addRoutine(name, interval, lastDoneStr){
-  let nextDue;
-  if(lastDoneStr){ nextDue = fmt(addInterval(parseDate(lastDoneStr), interval)); }
-  else           { nextDue = fmt(todayMid()); }  // 未実施なら今すぐ「今やること」に出す
-  routines.push({ id:uid(), name, interval, nextDue, lastDone:lastDoneStr||null });
+function addRoutine(name, interval, startStr){
+  const nextDue = startStr ? startStr : fmt(todayMid()); // 発生日を直接指定。空欄なら今日から
+  routines.push({ id:uid(), name, interval, nextDue, lastDone:null });
   save(); render();
 }
 function updateRoutine(id, name, interval, nextDueStr){
@@ -349,9 +347,10 @@ function openAdd(){
       <select id="f-iv">${intervalOptions('1mo')}</select>
     </div>
     <div class="field">
-      <label>最後にやった日（任意）</label>
-      <input type="date" id="f-last">
-      <div class="hint">入れると「やった日＋周期」が次回予定になります。<br>空欄なら今すぐ「今やること」に出ます。</div>
+      <label>発生日（任意）</label>
+      <input type="date" id="f-start">
+      <div class="hint">この日から「今やること」に出ます。締切は「発生日＋周期−1日」で自動。<br>空欄なら今日から出ます。</div>
+      <div class="hint" id="f-dlprev"></div>
     </div>
     <div class="err" id="f-err"></div>
     <div class="row">
@@ -361,6 +360,15 @@ function openAdd(){
   overlay.classList.add('open');
   const nameEl=document.getElementById('f-name');
   const errEl=document.getElementById('f-err');
+  const startEl=document.getElementById('f-start');
+  const ivEl=document.getElementById('f-iv');
+  const dlPrev=document.getElementById('f-dlprev');
+  function updatePrev(){
+    const start = startEl.value || fmt(todayMid());
+    const dl = deadlineDate(start, ivEl.value);
+    dlPrev.textContent = `→ 発生 ${fmtMd(parseDate(start))} ・ 締切 ${fmtMd(dl)}`;
+  }
+  startEl.oninput=updatePrev; ivEl.onchange=updatePrev; updatePrev();
   function submit(){
     const name=nameEl.value.trim();
     if(!name){
@@ -368,7 +376,7 @@ function openAdd(){
       nameEl.classList.add('invalid'); nameEl.focus();
       return;
     }
-    addRoutine(name, document.getElementById('f-iv').value, document.getElementById('f-last').value);
+    addRoutine(name, ivEl.value, startEl.value);
     closeSheet();
   }
   nameEl.oninput=()=>{ errEl.textContent=''; nameEl.classList.remove('invalid'); };
@@ -391,9 +399,10 @@ function openEdit(id){
       <select id="f-iv">${intervalOptions(r.interval)}</select>
     </div>
     <div class="field">
-      <label>次回の予定日</label>
+      <label>発生日（次に「やること」へ出す日）</label>
       <input type="date" id="f-next" value="${r.nextDue}">
-      <div class="hint">周期が実体に合わないときは、ここで直接ずらせます。</div>
+      <div class="hint">締切は「発生日＋周期−1日」で自動。周期が実体に合わないときはここでずらせます。</div>
+      <div class="hint" id="f-dlprev"></div>
     </div>
     <div class="row">
       <button class="btn ghost" id="f-cancel">やめる</button>
@@ -401,11 +410,20 @@ function openEdit(id){
     </div>
     <button class="btn danger" id="f-del">このルーティンを削除</button>`;
   overlay.classList.add('open');
+  const nextEl=document.getElementById('f-next');
+  const ivEl=document.getElementById('f-iv');
+  const dlPrev=document.getElementById('f-dlprev');
+  function updatePrev(){
+    if(!nextEl.value){ dlPrev.textContent=''; return; }
+    const dl=deadlineDate(nextEl.value, ivEl.value);
+    dlPrev.textContent = `→ 発生 ${fmtMd(parseDate(nextEl.value))} ・ 締切 ${fmtMd(dl)}`;
+  }
+  nextEl.oninput=updatePrev; ivEl.onchange=updatePrev; updatePrev();
   document.getElementById('f-cancel').onclick = closeSheet;
   document.getElementById('f-save').onclick = ()=>{
     const name=document.getElementById('f-name').value.trim();
     if(!name){ document.getElementById('f-name').focus(); return; }
-    updateRoutine(id, name, document.getElementById('f-iv').value, document.getElementById('f-next').value);
+    updateRoutine(id, name, ivEl.value, nextEl.value);
     closeSheet();
   };
   document.getElementById('f-del').onclick = ()=>{
