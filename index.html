@@ -130,6 +130,22 @@
   .btn.primary{background:var(--accent);color:#fff;flex:1;padding:13px;}
   .btn.ghost{background:#eef1f1;color:var(--ink);flex:none;padding:13px 16px;}
   .btn.danger{background:var(--late-bg);color:var(--late);width:100%;padding:11px;margin-top:4px;}
+  /* history */
+  .logrow{
+    background:var(--card);border-radius:12px;box-shadow:var(--shadow);
+    border:1px solid var(--line);padding:11px 14px;margin-bottom:8px;
+    display:flex;justify-content:space-between;align-items:center;gap:10px;
+  }
+  .logrow .ldate{font-weight:700;font-size:15px;color:var(--accent-d);min-width:48px;}
+  .logrow .lname{font-weight:600;font-size:15px;}
+  .logrow .lsub{font-size:11.5px;color:var(--sub);margin-top:2px;}
+  .logrow .undo{
+    flex:none;font-size:12px;color:var(--sub);font-weight:600;
+    background:#f0f2f2;border:none;border-radius:8px;padding:6px 10px;cursor:pointer;
+  }
+  .hist{font-size:13px;color:var(--ink);background:#fafbfb;border:1px solid var(--line);
+    border-radius:10px;padding:10px;max-height:140px;overflow-y:auto;line-height:1.7;}
+  .hist .none{color:var(--sub);}
 </style>
 </head>
 <body>
@@ -140,6 +156,7 @@
 <div class="tabs">
   <div class="tab active" data-tab="todo" id="tabTodo">今やること</div>
   <div class="tab" data-tab="all" id="tabAll">一覧</div>
+  <div class="tab" data-tab="log" id="tabLog">履歴</div>
 </div>
 <main id="view"></main>
 
@@ -205,36 +222,76 @@ let routines = load();
 let tab='todo';
 
 function load(){
-  try{ return JSON.parse(localStorage.getItem(KEY))||[]; }
-  catch(e){ return []; }
+  let arr=[];
+  try{ arr = JSON.parse(localStorage.getItem(KEY))||[]; }catch(e){ arr=[]; }
+  return arr.map(normalize).filter(Boolean);
+}
+// 旧形式{nextDue,lastDone}も新形式{anchor,history}へ移行
+function normalize(r){
+  if(!r || !r.id) return null;
+  return {
+    id: r.id,
+    name: r.name || '',
+    interval: r.interval || '1mo',
+    anchor: r.anchor || r.nextDue || fmt(todayMid()), // 基準の発生日（ここから周期ごとに発生）
+    history: Array.isArray(r.history) ? r.history.filter(h=>h&&h.due&&h.done) : []
+  };
 }
 function save(){ localStorage.setItem(KEY, JSON.stringify(routines)); }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 
-/* ---------- 完了処理（大遅刻は未来の直近予定日まで飛ばす） ---------- */
-function complete(id, doneStr){
-  const r = routines.find(x=>x.id===id); if(!r) return;
-  const done = parseDate(doneStr);
-  let next = parseDate(r.nextDue);
-  if(done < next){
-    next = addInterval(done, r.interval);     // 早めにやった場合
-  }else{
-    while(next <= done){ next = addInterval(next, r.interval); } // 予定日基準で進める
+/* ---------- 発生（案件）の生成 ----------
+   発生日は anchor, anchor+周期, anchor+2*周期 ... の固定グリッド。
+   完了済み(historyにdueがある)を除き、発生日<=今日 のものを「今やること」に出す。 */
+function pendingOccurrences(r, today){
+  const done = new Set(r.history.map(h=>h.due));
+  const res=[]; let d=parseDate(r.anchor); let guard=0;
+  while(d<=today && guard<1000){
+    const ds=fmt(d);
+    if(!done.has(ds)) res.push(ds);
+    d=addInterval(d, r.interval); guard++;
   }
-  r.lastDone = doneStr;
-  r.nextDue  = fmt(next);
+  return res;
+}
+// 次に対応すべき発生日（未完了の最初の発生＝遅れがあればそれ、無ければ次の予定）
+function nextOccurrence(r, today){
+  const done = new Set(r.history.map(h=>h.due));
+  let d=parseDate(r.anchor); let guard=0;
+  while(guard<3000){
+    const ds=fmt(d);
+    if(!done.has(ds)) return ds;
+    d=addInterval(d, r.interval); guard++;
+  }
+  return r.anchor;
+}
+function lastDoneOf(r){
+  if(!r.history.length) return null;
+  return r.history.reduce((m,h)=> h.done>m ? h.done : m, r.history[0].done);
+}
+
+/* ---------- 完了 / 取り消し ---------- */
+function complete(rid, due, doneStr){
+  const r = routines.find(x=>x.id===rid); if(!r) return;
+  if(!r.history.some(h=>h.due===due)){
+    r.history.push({ due, done: doneStr || fmt(todayMid()) });
+  }
+  save(); render();
+}
+function undoHistory(rid, due){
+  const r = routines.find(x=>x.id===rid); if(!r) return;
+  r.history = r.history.filter(h=> h.due!==due); // その発生を未完了に戻す
   save(); render();
 }
 
 /* ---------- 追加・編集・削除 ---------- */
 function addRoutine(name, interval, startStr){
-  const nextDue = startStr ? startStr : fmt(todayMid()); // 発生日を直接指定。空欄なら今日から
-  routines.push({ id:uid(), name, interval, nextDue, lastDone:null });
+  const anchor = startStr ? startStr : fmt(todayMid()); // 発生日を直接指定。空欄なら今日から
+  routines.push({ id:uid(), name, interval, anchor, history:[] });
   save(); render();
 }
-function updateRoutine(id, name, interval, nextDueStr){
+function updateRoutine(id, name, interval, anchorStr){
   const r = routines.find(x=>x.id===id); if(!r) return;
-  r.name=name; r.interval=interval; r.nextDue=nextDueStr;
+  r.name=name; r.interval=interval; r.anchor=anchorStr;
   save(); render();
 }
 function deleteRoutine(id){
@@ -247,27 +304,29 @@ function render(){
   document.getElementById('todayLabel').textContent = '今日は ' + fmtJp(todayMid());
   document.getElementById('tabTodo').classList.toggle('active', tab==='todo');
   document.getElementById('tabAll').classList.toggle('active', tab==='all');
+  document.getElementById('tabLog').classList.toggle('active', tab==='log');
   const view = document.getElementById('view');
-  view.innerHTML = tab==='todo' ? renderTodo() : renderAll();
+  view.innerHTML = tab==='todo' ? renderTodo() : tab==='all' ? renderAll() : renderLog();
   bind();
 }
 
+const emptyMsg = `<div class="empty"><div class="big">🗒️</div>まだルーティンがありません。<br>右下の ＋ から登録しましょう。</div>`;
+
 function renderTodo(){
   const today = todayMid();
-  const due = routines
-    .filter(r => parseDate(r.nextDue) <= today)
-    .sort((a,b)=> parseDate(a.nextDue) - parseDate(b.nextDue));
-
-  if(routines.length===0){
-    return `<div class="empty"><div class="big">🗒️</div>まだルーティンがありません。<br>右下の ＋ から登録しましょう。</div>`;
+  if(routines.length===0) return emptyMsg;
+  // 全ルーティンの未完了の発生（案件）を集めて、発生が古い順に並べる
+  let items=[];
+  routines.forEach(r=>{
+    pendingOccurrences(r, today).forEach(due=> items.push({r, due}));
+  });
+  if(items.length===0){
+    return `<div class="empty"><div class="big">✅</div>今やることはありません。<br>すべて完了しています。</div>`;
   }
-  if(due.length===0){
-    return `<div class="empty"><div class="big">✅</div>今やることはありません。<br>すべて予定どおりです。</div>`;
-  }
-
+  items.sort((a,b)=> parseDate(a.due) - parseDate(b.due));
   const tStr = fmt(today);
-  return due.map(r=>{
-    const late = daysBetween(today, parseDate(r.nextDue));
+  return items.map(({r, due})=>{
+    const late = daysBetween(today, parseDate(due));
     const badge = late>0
       ? `<span class="badge late">${late}日遅れ</span>`
       : `<span class="badge today">今日</span>`;
@@ -276,53 +335,85 @@ function renderTodo(){
       <div class="top">
         <div>
           <div class="name">${esc(r.name)}</div>
-          <div class="meta">${ivLabel(r.interval)} ・ 発生 ${fmtMd(parseDate(r.nextDue))} ・ 締切 ${fmtMd(deadlineDate(r.nextDue, r.interval))}</div>
+          <div class="meta">${ivLabel(r.interval)} ・ 発生 ${fmtMd(parseDate(due))} ・ 締切 ${fmtMd(deadlineDate(due, r.interval))}</div>
         </div>
         ${badge}
       </div>
       <div class="actions">
-        <input type="date" value="${tStr}" data-date="${r.id}">
-        <button class="btn done" data-done="${r.id}">完了</button>
+        <input type="date" value="${tStr}">
+        <button class="btn done" data-done="1" data-rid="${r.id}" data-due="${due}">完了</button>
       </div>
     </div>`;
   }).join('');
 }
 
 function renderAll(){
-  if(routines.length===0){
-    return `<div class="empty"><div class="big">🗒️</div>まだルーティンがありません。<br>右下の ＋ から登録しましょう。</div>`;
-  }
-  const sorted = [...routines].sort((a,b)=> parseDate(a.nextDue) - parseDate(b.nextDue));
+  if(routines.length===0) return emptyMsg;
+  const today = todayMid();
+  const sorted = [...routines].sort((a,b)=> parseDate(nextOccurrence(a,today)) - parseDate(nextOccurrence(b,today)));
   return sorted.map(r=>{
-    const last = r.lastDone ? '前回 '+fmtMd(parseDate(r.lastDone)) : '前回 なし';
+    const nx = nextOccurrence(r, today);
+    const ld = lastDoneOf(r);
+    const last = ld ? '前回 '+fmtMd(parseDate(ld)) : '前回 なし';
     return `
     <div class="listrow">
       <div>
         <div class="name">${esc(r.name)}</div>
-        <div class="meta">${ivLabel(r.interval)} ・ 発生 ${fmtMd(parseDate(r.nextDue))} ・ 締切 ${fmtMd(deadlineDate(r.nextDue, r.interval))} ・ ${last}</div>
+        <div class="meta">${ivLabel(r.interval)} ・ 次回発生 ${fmtMd(parseDate(nx))} ・ 締切 ${fmtMd(deadlineDate(nx, r.interval))} ・ 実施${r.history.length}回 ・ ${last}</div>
       </div>
       <button class="edit" data-edit="${r.id}">編集</button>
     </div>`;
   }).join('');
 }
 
+function renderLog(){
+  if(routines.length===0) return emptyMsg;
+  let entries=[];
+  routines.forEach(r=> r.history.forEach(h=> entries.push({rid:r.id, name:r.name, due:h.due, done:h.done})));
+  if(entries.length===0){
+    return `<div class="empty"><div class="big">🕘</div>まだ履歴がありません。<br>「今やること」で完了すると、ここに溜まっていきます。</div>`;
+  }
+  entries.sort((a,b)=> parseDate(b.done) - parseDate(a.done)); // 新しい順
+  return entries.map(e=>`
+    <div class="logrow">
+      <div class="ldate">${fmtMd(parseDate(e.done))}</div>
+      <div style="flex:1;min-width:0;">
+        <div class="lname">${esc(e.name)}</div>
+        <div class="lsub">実施 ${fmtJp(parseDate(e.done))}（発生 ${fmtMd(parseDate(e.due))}）</div>
+      </div>
+      <button class="undo" data-undo="1" data-rid="${e.rid}" data-due="${e.due}">取り消し</button>
+    </div>`).join('');
+}
+
 function esc(s){ return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// 編集画面に出すこのルーティンの実施履歴（新しい順）
+function histLines(r){
+  if(!r.history.length) return `<span class="none">まだありません</span>`;
+  return [...r.history]
+    .sort((a,b)=> parseDate(b.done) - parseDate(a.done))
+    .map(h=> `${fmtMd(parseDate(h.done))}（発生 ${fmtMd(parseDate(h.due))}）`)
+    .join('<br>');
+}
 
 /* ---------- イベント ---------- */
 function bind(){
   document.querySelectorAll('[data-done]').forEach(b=>{
     b.onclick = ()=>{
-      const id=b.dataset.done;
-      const di=document.querySelector(`[data-date="${id}"]`);
-      complete(id, di.value || fmt(todayMid()));
+      const di = b.closest('.card').querySelector('input[type=date]');
+      complete(b.dataset.rid, b.dataset.due, di.value || fmt(todayMid()));
     };
   });
   document.querySelectorAll('[data-edit]').forEach(b=>{
     b.onclick = ()=> openEdit(b.dataset.edit);
   });
+  document.querySelectorAll('[data-undo]').forEach(b=>{
+    b.onclick = ()=> undoHistory(b.dataset.rid, b.dataset.due);
+  });
 }
 document.getElementById('tabTodo').onclick = ()=>{ tab='todo'; render(); };
 document.getElementById('tabAll').onclick  = ()=>{ tab='all';  render(); };
+document.getElementById('tabLog').onclick  = ()=>{ tab='log';  render(); };
 document.getElementById('addBtn').onclick  = openAdd;
 
 /* ---------- モーダル ---------- */
@@ -399,10 +490,14 @@ function openEdit(id){
       <select id="f-iv">${intervalOptions(r.interval)}</select>
     </div>
     <div class="field">
-      <label>発生日（次に「やること」へ出す日）</label>
-      <input type="date" id="f-next" value="${r.nextDue}">
-      <div class="hint">締切は「発生日＋周期−1日」で自動。周期が実体に合わないときはここでずらせます。</div>
+      <label>発生日（基準）</label>
+      <input type="date" id="f-next" value="${r.anchor}">
+      <div class="hint">この日を起点に、周期ごとに発生日が作られます。締切は「発生日＋周期−1日」で自動。</div>
       <div class="hint" id="f-dlprev"></div>
+    </div>
+    <div class="field">
+      <label>実施履歴（${r.history.length}回）</label>
+      <div class="hist">${histLines(r)}</div>
     </div>
     <div class="row">
       <button class="btn ghost" id="f-cancel">やめる</button>
