@@ -82,6 +82,14 @@
   }
   .btn.done{background:var(--accent);color:#fff;flex:none;}
   .btn.done:active{background:var(--accent-d);}
+  .btn.skip{background:#eef1f1;color:var(--sub);flex:none;padding:9px 11px;}
+  .btn.skip:active{background:#e2e6e6;}
+  /* sort bar */
+  .sortbar{display:flex;align-items:center;gap:7px;margin-bottom:10px;padding:0 2px;flex-wrap:wrap;}
+  .sortbar .sort-label{font-size:12px;color:var(--sub);}
+  .sort-opt{font-size:12px;font-weight:600;border:1px solid var(--line);background:var(--card);
+    color:var(--sub);border-radius:999px;padding:5px 11px;cursor:pointer;}
+  .sort-opt.on{background:var(--accent);color:#fff;border-color:var(--accent);}
   /* list (manage) */
   .listrow{
     background:var(--card);border-radius:12px;box-shadow:var(--shadow);
@@ -151,11 +159,18 @@
   /* backup */
   .backup{margin-top:18px;padding:14px;background:var(--card);border:1px solid var(--line);
     border-radius:12px;box-shadow:var(--shadow);}
-  .backup .bk-title{font-weight:700;font-size:14px;margin-bottom:10px;}
+  .backup .bk-title{font-weight:700;font-size:14px;margin-bottom:6px;}
+  .backup .bk-status{font-size:12px;color:var(--sub);margin-bottom:10px;}
+  .backup .bk-remind{font-size:12.5px;font-weight:600;color:#a9760a;background:#fdf0db;
+    border-radius:9px;padding:8px 10px;margin-bottom:10px;}
   .backup .bk-row{display:flex;gap:10px;}
   .btn.bk{flex:1;background:#eef4f3;color:var(--accent-d);padding:11px;}
   .btn.bk:active{background:#e0eceb;}
   .backup .bk-hint{font-size:11.5px;color:var(--sub);margin-top:9px;line-height:1.6;}
+  /* skip tag in history */
+  .tag-skip{font-size:10.5px;font-weight:700;color:var(--sub);background:#eef1f1;
+    border-radius:6px;padding:1px 6px;margin-left:4px;vertical-align:middle;}
+  .logrow.skip .ldate{color:var(--sub);}
 </style>
 </head>
 <body>
@@ -228,8 +243,12 @@ function addInterval(d, key){
 
 /* ---------- データ ---------- */
 const KEY='routine-app-v1';
+const LASTBK='routine-app-lastbackup';
+const SORTKEY='routine-app-sort';
 let routines = load();
 let tab='todo';
+let sortMode = localStorage.getItem(SORTKEY) || 'deadline'; // 'deadline'=締切が近い順 / 'due'=発生が古い順
+function getLastBackup(){ return localStorage.getItem(LASTBK) || null; }
 
 function load(){
   let arr=[];
@@ -274,16 +293,25 @@ function nextOccurrence(r, today){
   }
   return r.anchor;
 }
+function doneHistory(r){ return r.history.filter(h=> !h.skipped); } // 実施のみ（スキップ除く）
 function lastDoneOf(r){
-  if(!r.history.length) return null;
-  return r.history.reduce((m,h)=> h.done>m ? h.done : m, r.history[0].done);
+  const dn = doneHistory(r);
+  if(!dn.length) return null;
+  return dn.reduce((m,h)=> h.done>m ? h.done : m, dn[0].done);
 }
 
-/* ---------- 完了 / 取り消し ---------- */
+/* ---------- 完了 / スキップ / 取り消し ---------- */
 function complete(rid, due, doneStr){
   const r = routines.find(x=>x.id===rid); if(!r) return;
   if(!r.history.some(h=>h.due===due)){
     r.history.push({ due, done: doneStr || fmt(todayMid()) });
+  }
+  save(); render();
+}
+function skip(rid, due){
+  const r = routines.find(x=>x.id===rid); if(!r) return;
+  if(!r.history.some(h=>h.due===due)){
+    r.history.push({ due, done: fmt(todayMid()), skipped:true }); // やらずに次の発生へ
   }
   save(); render();
 }
@@ -318,6 +346,8 @@ function exportData(){
   a.href = url; a.download = 'routine-backup-' + fmt(todayMid()) + '.json';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url), 1500);
+  localStorage.setItem(LASTBK, fmt(todayMid())); // 最終バックアップ日を記録
+  render();
 }
 function importData(file){
   const reader = new FileReader();
@@ -360,9 +390,19 @@ function renderTodo(){
   if(items.length===0){
     return `<div class="empty"><div class="big">✅</div>今やることはありません。<br>すべて完了しています。</div>`;
   }
-  items.sort((a,b)=> parseDate(a.due) - parseDate(b.due));
+  if(sortMode==='deadline'){
+    items.sort((a,b)=> deadlineDate(a.due,a.r.interval) - deadlineDate(b.due,b.r.interval)); // 締切が近い順
+  }else{
+    items.sort((a,b)=> parseDate(a.due) - parseDate(b.due)); // 発生が古い順
+  }
   const tStr = fmt(today);
-  return items.map(({r, due})=>{
+  const toggle = `
+    <div class="sortbar">
+      <span class="sort-label">並び：</span>
+      <button class="sort-opt ${sortMode==='deadline'?'on':''}" data-sort="deadline">締切が近い順</button>
+      <button class="sort-opt ${sortMode==='due'?'on':''}" data-sort="due">発生が古い順</button>
+    </div>`;
+  const cards = items.map(({r, due})=>{
     const dl = deadlineDate(due, r.interval);
     const daysLeft = daysBetween(dl, today); // 締切 − 今日
     let badge, isLate=false;
@@ -380,10 +420,12 @@ function renderTodo(){
       </div>
       <div class="actions">
         <input type="date" value="${tStr}">
+        <button class="btn skip" data-skip="1" data-rid="${r.id}" data-due="${due}">スキップ</button>
         <button class="btn done" data-done="1" data-rid="${r.id}" data-due="${due}">完了</button>
       </div>
     </div>`;
   }).join('');
+  return toggle + cards;
 }
 
 function renderAll(){
@@ -401,15 +443,23 @@ function renderAll(){
       <div class="listrow">
         <div>
           <div class="name">${esc(r.name)}</div>
-          <div class="meta">${ivLabel(r.interval)} ・ 次回発生 ${fmtMd(parseDate(nx))} ・ 締切 ${fmtMd(deadlineDate(nx, r.interval))} ・ 実施${r.history.length}回 ・ ${last}</div>
+          <div class="meta">${ivLabel(r.interval)} ・ 次回発生 ${fmtMd(parseDate(nx))} ・ 締切 ${fmtMd(deadlineDate(nx, r.interval))} ・ 実施${doneHistory(r).length}回 ・ ${last}</div>
         </div>
         <button class="edit" data-edit="${r.id}">編集</button>
       </div>`;
     }).join('');
   }
+  // 最終バックアップ表示＋リマインド
+  const lb = getLastBackup();
+  const lbDays = lb ? daysBetween(todayMid(), parseDate(lb)) : null;
+  const lbText = lb ? `最終バックアップ：${fmtJp(parseDate(lb))}（${lbDays}日前）` : 'まだ一度も書き出していません';
+  const needBackup = routines.length>0 && (lb===null || lbDays>=14);
+  const remind = needBackup ? `<div class="bk-remind">⚠️ そろそろ「書き出す」でバックアップを（万一に備えて）</div>` : '';
   return listHtml + `
     <div class="backup">
       <div class="bk-title">データのバックアップ</div>
+      <div class="bk-status">${lbText}</div>
+      ${remind}
       <div class="bk-row">
         <button class="btn bk" id="btn-export">書き出す（保存）</button>
         <button class="btn bk" id="btn-import">読み込む（復元）</button>
@@ -422,17 +472,17 @@ function renderAll(){
 function renderLog(){
   if(routines.length===0) return emptyMsg;
   let entries=[];
-  routines.forEach(r=> r.history.forEach(h=> entries.push({rid:r.id, name:r.name, due:h.due, done:h.done})));
+  routines.forEach(r=> r.history.forEach(h=> entries.push({rid:r.id, name:r.name, due:h.due, done:h.done, skipped:!!h.skipped})));
   if(entries.length===0){
     return `<div class="empty"><div class="big">🕘</div>まだ履歴がありません。<br>「今やること」で完了すると、ここに溜まっていきます。</div>`;
   }
   entries.sort((a,b)=> parseDate(b.done) - parseDate(a.done)); // 新しい順
   return entries.map(e=>`
-    <div class="logrow">
+    <div class="logrow ${e.skipped?'skip':''}">
       <div class="ldate">${fmtMd(parseDate(e.done))}</div>
       <div style="flex:1;min-width:0;">
-        <div class="lname">${esc(e.name)}</div>
-        <div class="lsub">実施 ${fmtJp(parseDate(e.done))}（発生 ${fmtMd(parseDate(e.due))}）</div>
+        <div class="lname">${esc(e.name)} ${e.skipped?'<span class="tag-skip">スキップ</span>':''}</div>
+        <div class="lsub">${e.skipped?'スキップ':'実施'} ${fmtJp(parseDate(e.done))}（発生 ${fmtMd(parseDate(e.due))}）</div>
       </div>
       <button class="undo" data-undo="1" data-rid="${e.rid}" data-due="${e.due}">取り消し</button>
     </div>`).join('');
@@ -445,7 +495,7 @@ function histLines(r){
   if(!r.history.length) return `<span class="none">まだありません</span>`;
   return [...r.history]
     .sort((a,b)=> parseDate(b.done) - parseDate(a.done))
-    .map(h=> `${fmtMd(parseDate(h.done))}（発生 ${fmtMd(parseDate(h.due))}）`)
+    .map(h=> `${fmtMd(parseDate(h.done))}（発生 ${fmtMd(parseDate(h.due))}）${h.skipped?' <span class="tag-skip">スキップ</span>':''}`)
     .join('<br>');
 }
 
@@ -460,8 +510,14 @@ function bind(){
   document.querySelectorAll('[data-edit]').forEach(b=>{
     b.onclick = ()=> openEdit(b.dataset.edit);
   });
+  document.querySelectorAll('[data-skip]').forEach(b=>{
+    b.onclick = ()=> skip(b.dataset.rid, b.dataset.due);
+  });
   document.querySelectorAll('[data-undo]').forEach(b=>{
     b.onclick = ()=> undoHistory(b.dataset.rid, b.dataset.due);
+  });
+  document.querySelectorAll('[data-sort]').forEach(b=>{
+    b.onclick = ()=>{ sortMode=b.dataset.sort; localStorage.setItem(SORTKEY, sortMode); render(); };
   });
   const exp=document.getElementById('btn-export');
   if(exp) exp.onclick = exportData;
