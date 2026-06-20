@@ -68,6 +68,8 @@
     padding:4px 10px;white-space:nowrap;
   }
   .badge.today{background:#e8f3f0;color:var(--accent-d);}
+  .badge.soft{background:#eef2f2;color:var(--sub);}
+  .badge.warn{background:#fdf0db;color:#a9760a;}
   .badge.late{background:var(--late-bg);color:var(--late);}
   .card .actions{display:flex;gap:8px;margin-top:12px;align-items:center;}
   .card .actions input[type=date]{
@@ -326,16 +328,18 @@ function renderTodo(){
   items.sort((a,b)=> parseDate(a.due) - parseDate(b.due));
   const tStr = fmt(today);
   return items.map(({r, due})=>{
-    const late = daysBetween(today, parseDate(due));
-    const badge = late>0
-      ? `<span class="badge late">${late}日遅れ</span>`
-      : `<span class="badge today">今日</span>`;
+    const dl = deadlineDate(due, r.interval);
+    const daysLeft = daysBetween(dl, today); // 締切 − 今日
+    let badge, isLate=false;
+    if(daysLeft < 0){ isLate=true; badge = `<span class="badge late">${-daysLeft}日遅れ</span>`; }
+    else if(daysLeft === 0){ badge = `<span class="badge warn">締切 今日</span>`; }
+    else { badge = `<span class="badge soft">あと${daysLeft}日</span>`; }
     return `
-    <div class="card ${late>0?'late':''}">
+    <div class="card ${isLate?'late':''}">
       <div class="top">
         <div>
           <div class="name">${esc(r.name)}</div>
-          <div class="meta">${ivLabel(r.interval)} ・ 発生 ${fmtMd(parseDate(due))} ・ 締切 ${fmtMd(deadlineDate(due, r.interval))}</div>
+          <div class="meta">${ivLabel(r.interval)} ・ 発生 ${fmtMd(parseDate(due))} ・ 締切 ${fmtMd(dl)}</div>
         </div>
         ${badge}
       </div>
