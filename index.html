@@ -148,6 +148,14 @@
   .hist{font-size:13px;color:var(--ink);background:#fafbfb;border:1px solid var(--line);
     border-radius:10px;padding:10px;max-height:140px;overflow-y:auto;line-height:1.7;}
   .hist .none{color:var(--sub);}
+  /* backup */
+  .backup{margin-top:18px;padding:14px;background:var(--card);border:1px solid var(--line);
+    border-radius:12px;box-shadow:var(--shadow);}
+  .backup .bk-title{font-weight:700;font-size:14px;margin-bottom:10px;}
+  .backup .bk-row{display:flex;gap:10px;}
+  .btn.bk{flex:1;background:#eef4f3;color:var(--accent-d);padding:11px;}
+  .btn.bk:active{background:#e0eceb;}
+  .backup .bk-hint{font-size:11.5px;color:var(--sub);margin-top:9px;line-height:1.6;}
 </style>
 </head>
 <body>
@@ -301,6 +309,33 @@ function deleteRoutine(id){
   save(); render();
 }
 
+/* ---------- バックアップ（書き出し / 読み込み） ---------- */
+function exportData(){
+  const payload = { app:'my-routine', version:1, exportedAt:new Date().toISOString(), routines };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'routine-backup-' + fmt(todayMid()) + '.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1500);
+}
+function importData(file){
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    let data;
+    try{ data = JSON.parse(reader.result); }
+    catch(e){ alert('読み込めませんでした（JSONとして正しくありません）'); return; }
+    const arr = Array.isArray(data) ? data : (data && data.routines);
+    if(!Array.isArray(arr)){ alert('このファイルにルーティンのデータが見つかりませんでした'); return; }
+    const incoming = arr.map(normalize).filter(Boolean);
+    if(!incoming.length){ alert('有効なルーティンが含まれていませんでした'); return; }
+    if(!confirm('今のデータ（'+routines.length+'件）を、読み込む内容（'+incoming.length+'件）で置き換えます。よろしいですか？')) return;
+    routines = incoming; save(); render();
+    alert(incoming.length+'件を読み込みました。');
+  };
+  reader.readAsText(file);
+}
+
 /* ---------- 描画 ---------- */
 function render(){
   document.getElementById('todayLabel').textContent = '今日は ' + fmtJp(todayMid());
@@ -352,22 +387,36 @@ function renderTodo(){
 }
 
 function renderAll(){
-  if(routines.length===0) return emptyMsg;
   const today = todayMid();
-  const sorted = [...routines].sort((a,b)=> parseDate(nextOccurrence(a,today)) - parseDate(nextOccurrence(b,today)));
-  return sorted.map(r=>{
-    const nx = nextOccurrence(r, today);
-    const ld = lastDoneOf(r);
-    const last = ld ? '前回 '+fmtMd(parseDate(ld)) : '前回 なし';
-    return `
-    <div class="listrow">
-      <div>
-        <div class="name">${esc(r.name)}</div>
-        <div class="meta">${ivLabel(r.interval)} ・ 次回発生 ${fmtMd(parseDate(nx))} ・ 締切 ${fmtMd(deadlineDate(nx, r.interval))} ・ 実施${r.history.length}回 ・ ${last}</div>
+  let listHtml;
+  if(routines.length===0){
+    listHtml = `<div class="empty" style="padding:32px 20px;"><div class="big">🗒️</div>まだルーティンがありません。<br>右下の ＋ から登録、または下の「読み込む」で復元できます。</div>`;
+  }else{
+    const sorted = [...routines].sort((a,b)=> parseDate(nextOccurrence(a,today)) - parseDate(nextOccurrence(b,today)));
+    listHtml = sorted.map(r=>{
+      const nx = nextOccurrence(r, today);
+      const ld = lastDoneOf(r);
+      const last = ld ? '前回 '+fmtMd(parseDate(ld)) : '前回 なし';
+      return `
+      <div class="listrow">
+        <div>
+          <div class="name">${esc(r.name)}</div>
+          <div class="meta">${ivLabel(r.interval)} ・ 次回発生 ${fmtMd(parseDate(nx))} ・ 締切 ${fmtMd(deadlineDate(nx, r.interval))} ・ 実施${r.history.length}回 ・ ${last}</div>
+        </div>
+        <button class="edit" data-edit="${r.id}">編集</button>
+      </div>`;
+    }).join('');
+  }
+  return listHtml + `
+    <div class="backup">
+      <div class="bk-title">データのバックアップ</div>
+      <div class="bk-row">
+        <button class="btn bk" id="btn-export">書き出す（保存）</button>
+        <button class="btn bk" id="btn-import">読み込む（復元）</button>
       </div>
-      <button class="edit" data-edit="${r.id}">編集</button>
-    </div>`;
-  }).join('');
+      <div class="bk-hint">データはこの端末のブラウザ内だけにあります。機種変更・URL変更・データ消去で消えないよう、ときどき「書き出す」で<b>ファイル(iCloud)</b>に保存しておくと安心です。復元は「読み込む」から。</div>
+    </div>
+    <input type="file" id="file-import" accept="application/json,.json" style="display:none">`;
 }
 
 function renderLog(){
@@ -414,6 +463,13 @@ function bind(){
   document.querySelectorAll('[data-undo]').forEach(b=>{
     b.onclick = ()=> undoHistory(b.dataset.rid, b.dataset.due);
   });
+  const exp=document.getElementById('btn-export');
+  if(exp) exp.onclick = exportData;
+  const imp=document.getElementById('btn-import'), fi=document.getElementById('file-import');
+  if(imp && fi){
+    imp.onclick = ()=> fi.click();
+    fi.onchange = ()=>{ if(fi.files && fi.files[0]) importData(fi.files[0]); fi.value=''; };
+  }
 }
 document.getElementById('tabTodo').onclick = ()=>{ tab='todo'; render(); };
 document.getElementById('tabAll').onclick  = ()=>{ tab='all';  render(); };
